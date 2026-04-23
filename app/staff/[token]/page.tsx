@@ -188,7 +188,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                             <Clock className="w-4 h-4 text-blue-600" />
                             <div className="flex flex-col">
                               <span className="text-sm font-bold text-gray-800">{format(parseISO(dayShift.start_time), 'HH:mm')} - {format(parseISO(dayShift.end_time), 'HH:mm')}</span>
-                              <span className="text-[10px] text-gray-500 uppercase">{dayShift.mng_stores?.name}</span>
+                              <span className="text-[10px] text-gray-500 uppercase">{(dayShift as any).mng_stores?.name}</span>
                             </div>
                           </div>
                         ) : (
