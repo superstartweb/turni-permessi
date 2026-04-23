@@ -8,13 +8,22 @@ import {
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
-interface Employee { id: string; full_name: string; }
+// INTERFACCE BLINDATE PER VERCEL
+interface Employee { 
+  id: string; 
+  full_name: string; 
+  role: string;
+  mng_companies: { name: string } | null;
+}
+
 interface Shift {
   id: string;
   start_time: string;
   end_time: string;
-  stores: { name: string } | null;
+  mng_stores: { name: string } | null;
+  mng_employees: { full_name: string } | null;
 }
+
 interface Request {
   id: string;
   type: string;
@@ -34,7 +43,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
   const [activeTab, setActiveTab] = useState<'shifts' | 'requests'>('shifts');
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
 
-  // STATI DEL FORM RICHIESTE (Nomi coordinati)
+  // Stati per il Form Richieste
   const [reqType, setReqType] = useState('ferie');
   const [reqStart, setReqStart] = useState('');
   const [reqEnd, setReqEnd] = useState('');
@@ -50,7 +59,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
       try {
         const { data: emp, error: empErr } = await supabase
           .from('mng_employees')
-          .select('*, mng_companies(id, name, turns_enabled, requests_enabled)')
+          .select('*, mng_companies(name, turns_enabled, requests_enabled)')
           .eq('access_token', token)
           .single();
 
@@ -101,9 +110,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
       alert("Errore: " + error.message);
     } else {
       setSentSuccess(true);
-      // Reset form
       setReqStart(''); setReqEnd(''); setCert(''); setNotes('');
-      // Ricarica storico
       const { data: updatedReqs } = await supabase
         .from('mng_requests')
         .select('*')
@@ -117,8 +124,8 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
 
-  if (loading) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div>;
-  if (!employee) return <div className="flex h-screen items-center justify-center font-bold text-red-600">Accesso non valido.</div>;
+  if (loading) return <div className="flex h-screen items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" /></div>;
+  if (!employee) return <div className="flex h-screen items-center justify-center p-4 text-center font-bold text-red-600">Link non valido o scaduto.</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 text-black">
@@ -161,9 +168,9 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
           <div className="space-y-6 animate-in fade-in duration-500">
             <div className="bg-white rounded-2xl shadow-sm border p-4">
               <div className="flex items-center justify-between mb-4">
-                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, -7))} className="p-2 hover:bg-gray-100 rounded-full"><ChevronLeft className="w-5 h-5" /></button>
+                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, -7))} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft className="w-5 h-5" /></button>
                 <span className="font-bold text-gray-700">{format(currentWeekStart, 'dd MMM', { locale: it })} - {format(addDays(currentWeekStart, 6), 'dd MMM', { locale: it })}</span>
-                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, 7))} className="p-2 hover:bg-gray-100 rounded-full"><ChevronRight className="w-5 h-5" /></button>
+                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, 7))} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronRight className="w-5 h-5" /></button>
               </div>
 
               <div className="space-y-3">
@@ -204,7 +211,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
               <form onSubmit={handleSendRequest} className="space-y-4">
                 <div className="flex gap-2 p-1 bg-gray-100 rounded-lg">
                   {['ferie', 'malattia', 'permesso'].map(t => (
-                    <button type="button" key={t} onClick={() => setReqType(t)} className={`flex-1 py-2 text-xs font-bold rounded-md capitalize ${reqType === t ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-500'}`}>{t}</button>
+                    <button type="button" key={t} onClick={() => setReqType(t)} className={`flex-1 py-2 text-xs font-bold rounded-md capitalize transition-all ${reqType === t ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-500'}`}>{t}</button>
                   ))}
                 </div>
 
@@ -220,7 +227,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                 </div>
 
                 {reqType === 'permesso' && (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 animate-in slide-in-from-top-2">
                     <div className="flex flex-col gap-1">
                       <label className="text-[10px] font-bold text-gray-400 uppercase">Inizio</label>
                       <input type="time" value={reqTimeStart} onChange={e => setReqTimeStart(e.target.value)} className="p-2 border rounded-lg text-sm" required />
@@ -233,7 +240,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                 )}
 
                 {reqType === 'malattia' && (
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 animate-in slide-in-from-top-2">
                     <label className="text-[10px] font-bold text-gray-400 uppercase">Numero Certificato</label>
                     <input type="text" value={cert} onChange={e => setCert(e.target.value)} placeholder="Inserisci numero certificato" className="p-2 border rounded-lg text-sm" required />
                   </div>
@@ -244,7 +251,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                   <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Note opzionali..." className="w-full p-2 border rounded-lg text-sm" rows={2}></textarea>
                 </div>
 
-                <button type="submit" disabled={isSending} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2">
+                <button type="submit" disabled={isSending} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95">
                   {isSending ? <Loader2 className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />} Invia Richiesta
                 </button>
               </form>
