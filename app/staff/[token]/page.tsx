@@ -8,12 +8,18 @@ import {
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
-// INTERFACCE BLINDATE PER VERCEL
+// INTERFACCE DEFINITE CORRETTAMENTE PER EVITARE ERRORI DI BUILD
+interface Company {
+  name: string;
+  turns_enabled: boolean;
+  requests_enabled: boolean;
+}
+
 interface Employee { 
   id: string; 
   full_name: string; 
   role: string;
-  mng_companies: { name: string } | null;
+  mng_companies: Company | null;
 }
 
 interface Shift {
@@ -36,7 +42,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
   const resolvedParams = use(params);
   const token = resolvedParams.token;
 
-  const [employee, setEmployee] = useState<any>(null);
+  const [employee, setEmployee] = useState<Employee | null>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
@@ -64,21 +70,21 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
           .single();
 
         if (empErr || !emp) throw new Error("Accesso non valido");
-        setEmployee(emp);
+        setEmployee(emp as unknown as Employee);
 
         const { data: shfts } = await supabase
           .from('mng_shifts')
           .select('*, mng_stores(name)')
           .eq('employee_id', emp.id)
           .order('start_time', { ascending: true });
-        setShifts(shfts || []);
+        setShifts((shfts as unknown as Shift[]) || []);
 
         const { data: reqs } = await supabase
           .from('mng_requests')
           .select('*')
           .eq('employee_id', emp.id)
           .order('created_at', { ascending: false });
-        setRequests(reqs || []);
+        setRequests((reqs as unknown as Request[]) || []);
 
       } catch (err) {
         console.error(err);
@@ -116,7 +122,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
         .select('*')
         .eq('employee_id', employee.id)
         .order('created_at', { ascending: false });
-      setRequests(updatedReqs || []);
+      setRequests((updatedReqs as unknown as Request[]) || []);
       setTimeout(() => setSentSuccess(false), 3000);
     }
     setIsSending(false);
@@ -188,7 +194,7 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                             <Clock className="w-4 h-4 text-blue-600" />
                             <div className="flex flex-col">
                               <span className="text-sm font-bold text-gray-800">{format(parseISO(dayShift.start_time), 'HH:mm')} - {format(parseISO(dayShift.end_time), 'HH:mm')}</span>
-                              <span className="text-[10px] text-gray-500 uppercase">{(dayShift as any).mng_stores?.name}</span>
+                              <span className="text-[10px] text-gray-500 uppercase">{dayShift.mng_stores?.name}</span>
                             </div>
                           </div>
                         ) : (
