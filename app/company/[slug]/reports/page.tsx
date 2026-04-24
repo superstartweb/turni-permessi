@@ -5,7 +5,7 @@ import { ChevronLeft, FileText, Download, Loader2, Calendar } from 'lucide-react
 import Link from 'next/link';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import { format, startOfMonth, endOfMonth, parseISO, differenceInHours } from 'date-fns';
+import { format, startOfMonth, endOfMonth, parseISO } from 'date-fns';
 
 export default function ReportsPage({ params }: { params: Promise<{ slug: string }> }) {
   const resolvedParams = use(params);
@@ -29,15 +29,23 @@ export default function ReportsPage({ params }: { params: Promise<{ slug: string
     init();
   }, [slug]);
 
+  // FUNZIONE DI SUPPORTO PER CALCOLO PRECISE
+  // Calcola la differenza in ore decimali (es: 8h 30m -> 8.5)
+  const calculateDecimalHours = (start: string, end: string): number => {
+    const s = parseISO(start).getTime();
+    const e = parseISO(end).getTime();
+    const diffInMs = e - s;
+    if (diffInMs <= 0) return 0;
+    return diffInMs / (1000 * 60 * 60); // Converte millisecondi in ore
+  };
+
   const generatePDF = async () => {
     setLoading(true);
     try {
-      // 1. Definiamo l'intervallo del mese scelto
       const [year, month] = selectedMonth.split('-').map(Number);
       const start = startOfMonth(new Date(year, month - 1));
       const end = endOfMonth(start);
 
-      // 2. Recuperiamo tutti i turni di quell'intervallo per l'azienda
       const { data: shifts, error } = await supabase
         .from('mng_shifts')
         .select('*, mng_employees(full_name)')
@@ -46,7 +54,6 @@ export default function ReportsPage({ params }: { params: Promise<{ slug: string
 
       if (error) throw error;
 
-      // 3. Calcolo ore e domeniche per ogni dipendente
       const reportData = employees.map(emp => {
         const empShifts = shifts.filter(s => s.employee_id === emp.id);
         
@@ -54,24 +61,27 @@ export default function ReportsPage({ params }: { params: Promise<{ slug: string
         let sundayCount = 0;
 
         empShifts.forEach(s => {
-          // Somma ore
-          const diff = differenceInHours(parseISO(s.end_time), parseISO(s.start_time));
-          totalHours += diff;
-          // Conta domeniche
+          // 1. Calcolo prima fascia
+          totalHours += calculateDecimalHours(s.start_time, s.end_time);
+
+          // 2. Calcolo seconda fascia (SE esiste ed è uno spezzato)
+          if (s.is_split_shift && s.start_time_2 && s.end_time_2) {
+            totalHours += calculateDecimalHours(s.start_time_2, s.end_time_2);
+          }
+
+          // 3. Conta domeniche
           if (s.is_sunday) sundayCount++;
         });
 
         return {
           name: emp.full_name,
-          hours: totalHours,
+          hours: totalHours.toFixed(2), // Arrotondiamo a 2 decimali
           sundays: sundayCount
         };
       });
 
-      // 4. CREAZIONE DEL PDF
       const doc = new jsPDF();
       
-      // Intestazione
       doc.setFontSize(20);
       doc.text(company?.name || "Report Turni", 14, 22);
       doc.setFontSize(11);
@@ -79,7 +89,6 @@ export default function ReportsPage({ params }: { params: Promise<{ slug: string
       doc.text(`Report Mensile: ${selectedMonth}`, 14, 30);
       doc.text(`Generato il: ${format(new Date(), 'dd/MM/yyyy HH:mm')}`, 14, 36);
 
-      // Tabella
       autoTable(doc, {
         startY: 45,
         head: [['Dipendente', 'Totale Ore', 'Domeniche Lavorate', 'Stato']],
@@ -89,11 +98,10 @@ export default function ReportsPage({ params }: { params: Promise<{ slug: string
           `${r.sundays} ${r.sundays === 1 ? 'Domenica' : 'Domeniche'}`, 
           'Verificato'
         ]),
-        headStyles: { fillColor: [37, 99, 235] }, // Blu come l'app
+        headStyles: { fillColor: [37, 99, 235] },
         theme: 'grid',
       });
 
-      // Footer per firme
       const finalY = (doc as any).lastAutoTable.finalY + 20;
       doc.text("Firma Titolare: ____________________", 14, finalY);
       doc.text("Firma Dipendente: ____________________", 110, finalY);
@@ -147,7 +155,7 @@ export default function ReportsPage({ params }: { params: Promise<{ slug: string
         </div>
 
         <div className="mt-10 p-4 bg-blue-50 rounded-xl border border-blue-100 text-sm text-blue-700">
-          <strong>Nota:</strong> Il report calcola automaticamente le ore totali e conta quante domeniche sono state lavorate per ogni dipendente in base ai turni salvati.
+          <strong>Nota:</strong> Il report calcola automaticamente le ore totali (inclusi i turni spezzati) e conta quante domeniche sono state lavorate per ogni dipendente in base ai turni salvati.
         </div>
       </main>
     </div>
