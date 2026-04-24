@@ -4,10 +4,19 @@ import { supabase } from '@/lib/supabase';
 import { 
   ChevronLeft, PlusCircle, CalendarDays, Clock, 
   Store as StoreIcon, Trash2, Loader2, 
-  AlertTriangle, CheckCircle2 
+  AlertTriangle, CheckCircle2, Search, X
 } from 'lucide-react';
 import Link from 'next/link';
-import { format as fmt, areIntervalsOverlapping as checkOverlap } from 'date-fns';
+import { 
+  format as fmt, 
+  areIntervalsOverlapping as checkOverlap, 
+  startOfWeek, 
+  addDays, 
+  isSameDay, 
+  parseISO, 
+  startOfMonth, 
+  endOfMonth 
+} from 'date-fns';
 import { it } from 'date-fns/locale';
 
 interface Employee { id: string; full_name: string; }
@@ -37,22 +46,23 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
   const [stores, setStores] = useState<Store[]>([]);
   const [shifts, setShifts] = useState<Shift[]>([]);
 
-  // STATI FORM
+  // STATI NAVIGAZIONE E FILTRI
+  const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  const [searchTerm, setSearchTerm] = useState('');
+
+  // STATI FORM (Nuovo/Modifica)
   const [empId, setEmpId] = useState('');
   const [selectedStore, setSelectedStore] = useState('');
   const [date, setDate] = useState(fmt(new Date(), 'yyyy-MM-dd'));
-  
-  // Fascia 1
   const [startTime, setStartTime] = useState('09:00');
   const [endTime, setEndTime] = useState('13:00');
-  
-  // Fascia 2 (per i turni spezzati)
   const [startTime2, setStartTime2] = useState('14:00');
   const [endTime2, setEndTime2] = useState('18:00');
-  
   const [isSplit, setIsSplit] = useState(false);
   const [isHoliday, setIsHoliday] = useState(false);
 
+  // STATO MODAL
+  const [editingShift, setEditingShift] = useState<Shift | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -65,16 +75,11 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
           setCompany(comp);
           const { data: stors } = await supabase.from('mng_stores').select('id, name').eq('company_id', comp.id);
           const { data: emps } = await supabase.from('mng_employees').select('id, full_name').eq('company_id', comp.id);
-          
           setStores(stors || []);
           setEmployees(emps || []);
           fetchShifts(comp.id);
         }
-      } catch (err) { 
-        console.error("Errore inizializzazione:", err); 
-      } finally { 
-        setFetching(false); 
-      }
+      } catch (err) { console.error(err); } finally { setFetching(false); }
     }
     init();
   }, [slug]);
@@ -88,88 +93,27 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
     if (!error) setShifts(data || []);
   };
 
-  const addShift = async (e: React.FormEvent) => {
+  const handleSaveShift = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!empId || !selectedStore || !company) return;
 
     setLoading(true);
     setErrorMsg(null);
 
-    // Preparazione date Fascia 1
     const start1 = new Date(`${date}T${startTime}`);
     const end1 = new Date(`${date}T${endTime}`);
+    if (start1 >= end1) { setErrorMsg("Fine 1 deve essere dopo Inizio 1!"); setLoading(false); return; }
 
-    if (start1 >= end1) {
-      setErrorMsg("L'orario di fine 1 deve essere dopo l'inizio 1!");
-      setLoading(false);
-      return;
-    }
-
-    // Preparazione date Fascia 2
     let start2: Date | null = null;
     let end2: Date | null = null;
-
     if (isSplit) {
       start2 = new Date(`${date}T${startTime2}`);
       end2 = new Date(`${date}T${endTime2}`);
-
-      if (start2 >= end2) {
-        setErrorMsg("L'orario di fine 2 deve essere dopo l'inizio 2!");
-        setLoading(false);
-        return;
-      }
-      if (start2 <= end1) {
-        setErrorMsg("La seconda fascia deve iniziare dopo la fine della prima!");
-        setLoading(false);
-        return;
-      }
+      if (start2 >= end2) { setErrorMsg("Fine 2 deve essere dopo Inizio 2!"); setLoading(false); return; }
+      if (start2 <= end1) { setErrorMsg("La seconda fascia deve iniziare dopo la prima!"); setLoading(false); return; }
     }
 
-    // 1. Controllo Assenze Approvate
-    const { data: absence } = await supabase
-      .from('mng_requests')
-      .select('*')
-      .eq('employee_id', empId)
-      .eq('status', 'approved')
-      .lte('start_date', date)
-      .gte('end_date', date);
-
-    if (absence && absence.length > 0) {
-      setErrorMsg(`Il dipendente è in ${absence[0].type.toUpperCase()} approvata!`);
-      setLoading(false);
-      return;
-    }
-
-    // 2. Controllo Collisione Turni (Entrambe le fasce!)
-    const conflict = shifts.find(s => {
-      if (s.employee_id !== empId) return false;
-
-      // Verifica collisione con fascia 1
-      const sStart1 = new Date(s.start_time);
-      const sEnd1 = new Date(s.end_time);
-      const collision1 = checkOverlap({ start: start1, end: end1 }, { start: sStart1, end: sEnd1 });
-      
-      if (collision1) return true;
-
-      // Verifica collisione con fascia 2 (se il nuovo turno è spezzato e se il turno esistente ha una seconda fascia)
-      if (isSplit && s.start_time_2 && s.end_time_2 && start2 && end2) {
-        const sStart2 = new Date(s.start_time_2);
-        const sEnd2 = new Date(s.end_time_2);
-        const collision2 = checkOverlap({ start: start2, end: end2 }, { start: sStart2, end: sEnd2 });
-        if (collision2) return true;
-      }
-
-      return false;
-    });
-
-    if (conflict) {
-      setErrorMsg(`Il dipendente ha già un turno in uno di questi orari!`);
-      setLoading(false);
-      return;
-    }
-
-    // 3. Inserimento in Supabase
-    const { error } = await supabase.from('mng_shifts').insert([{
+    const payload = {
       employee_id: empId,
       store_id: selectedStore,
       company_id: company.id,
@@ -180,14 +124,16 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
       is_split_shift: isSplit,
       is_holiday: isHoliday,
       is_sunday: fmt(start1, 'EEEE', { locale: it }) === 'domenica',
-    }]);
+    };
 
-    if (error) {
-      setErrorMsg(error.message);
-    } else {
-      setEmpId(''); 
-      setSelectedStore('');
-      setIsSplit(false);
+    const { error } = editingShift 
+      ? await supabase.from('mng_shifts').update(payload).eq('id', editingShift.id)
+      : await supabase.from('mng_shifts').insert([payload]);
+
+    if (error) setErrorMsg(error.message);
+    else {
+      setEmpId(''); setSelectedStore(''); setIsSplit(false);
+      setEditingShift(null);
       fetchShifts(company.id);
     }
     setLoading(false);
@@ -196,31 +142,57 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
   const deleteShift = async (id: string) => {
     if (!confirm("Eliminare questo turno?")) return;
     await supabase.from('mng_shifts').delete().eq('id', id);
+    setEditingShift(null);
     fetchShifts(company.id);
+  };
+
+  const openEditModal = (shift: Shift) => {
+    setEditingShift(shift);
+    setEmpId(shift.employee_id);
+    setSelectedStore(shift.store_id);
+    setDate(fmt(parseISO(shift.start_time), 'yyyy-MM-dd'));
+    setStartTime(fmt(parseISO(shift.start_time), 'HH:mm'));
+    setEndTime(fmt(parseISO(shift.end_time), 'HH:mm'));
+    setIsSplit(shift.is_split_shift);
+    setIsHoliday(shift.is_holiday);
+    if (shift.is_split_shift && shift.start_time_2) {
+      setStartTime2(fmt(parseISO(shift.start_time_2), 'HH:mm'));
+      setEndTime2(fmt(parseISO(shift.end_time_2!), 'HH:mm'));
+    }
   };
 
   if (fetching) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div>;
   if (!company) return <div className="p-10 text-center">Azienda non trovata</div>;
 
+  // Calcolo giorni settimana
+  const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
+  const filteredEmployees = employees.filter(e => e.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <div className="min-h-screen bg-gray-50 text-black">
-      <header className="bg-white border-b px-6 py-4 flex items-center gap-4">
-        <Link href={`/company/${slug}`} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft className="w-6 h-6 text-gray-600" /></Link>
-        <h1 className="text-xl font-bold text-gray-800">{company.name} - Gestione Turni</h1>
+      <header className="bg-white border-b px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Link href={`/company/${slug}`} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft className="w-6 h-6 text-gray-600" /></Link>
+          <h1 className="text-xl font-bold text-gray-800">{company.name} - Gestione Turni</h1>
+        </div>
+        <div className="flex items-center gap-2 bg-gray-100 px-3 py-2 rounded-lg border">
+          <Search className="w-4 h-4 text-gray-400" />
+          <input 
+            type="text" 
+            placeholder="Cerca dipendente..." 
+            value={searchTerm} 
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="bg-transparent outline-none text-sm w-48"
+          />
+        </div>
       </header>
 
-      <main className="p-6 max-w-5xl mx-auto">
+      <main className="p-6 max-w-7xl mx-auto">
+        {/* FORM INSERIMENTO RAPIDO */}
         <div className="bg-white p-6 rounded-xl shadow-sm border mb-8">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><PlusCircle className="w-5 h-5 text-blue-600" /> Assegna Nuovo Turno</h2>
-          
-          {errorMsg && (
-            <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 text-sm border border-red-200">
-              <AlertTriangle className="w-4 h-4" /> {errorMsg}
-            </div>
-          )}
-          
-          <form onSubmit={addShift} className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Dipendente */}
+          {errorMsg && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 text-sm border border-red-200"><AlertTriangle className="w-4 h-4" /> {errorMsg}</div>}
+          <form onSubmit={handleSaveShift} className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Dipendente</label>
               <select value={empId} onChange={(e) => setEmpId(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required>
@@ -228,8 +200,6 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
                 {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
               </select>
             </div>
-
-            {/* Negozio */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Negozio</label>
               <select value={selectedStore} onChange={(e) => setSelectedStore(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required>
@@ -237,107 +207,167 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
                 {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
               </select>
             </div>
-
-            {/* Data */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Data</label>
               <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required />
             </div>
-
-            {/* Fascia 1: Inizio */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Inizio 1</label>
               <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required />
             </div>
-
-            {/* Fascia 1: Fine */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Fine 1</label>
               <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required />
             </div>
-
-            {/* Opzioni */}
             <div className="flex flex-col gap-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Opzioni</label>
               <div className="flex items-center gap-4 mt-2">
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                  <input type="checkbox" checked={isSplit} onChange={(e) => setIsSplit(e.target.checked)} className="w-4 h-4" /> 
-                  Spezzato
-                </label>
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                  <input type="checkbox" checked={isHoliday} onChange={(e) => setIsHoliday(e.target.checked)} className="w-4 h-4" /> 
-                  Festivo
-                </label>
+                <label className="flex items-center gap-1 text-sm cursor-pointer"><input type="checkbox" checked={isSplit} onChange={(e) => setIsSplit(e.target.checked)} /> Spezzato</label>
+                <label className="flex items-center gap-1 text-sm cursor-pointer"><input type="checkbox" checked={isHoliday} onChange={(e) => setIsHoliday(e.target.checked)} /> Festivo</label>
               </div>
             </div>
-
-            {/* Campi dinamici per lo Spezzato */}
             {isSplit && (
               <>
-                <div className="flex flex-col gap-1 animate-in fade-in duration-300">
+                <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-blue-600 uppercase">Inizio 2</label>
                   <input type="time" value={startTime2} onChange={(e) => setStartTime2(e.target.value)} className="p-2 border-2 border-blue-100 rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required />
                 </div>
-                <div className="flex flex-col gap-1 animate-in fade-in duration-300">
+                <div className="flex flex-col gap-1">
                   <label className="text-xs font-bold text-blue-600 uppercase">Fine 2</label>
                   <input type="time" value={endTime2} onChange={(e) => setEndTime2(e.target.value)} className="p-2 border-2 border-blue-100 rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required />
                 </div>
-                <div className="flex items-end pb-2">
-                  <p className="text-[10px] text-blue-400 italic">Seconda fascia oraria</p>
-                </div>
               </>
             )}
-
-            <div className="md:col-span-3 mt-2">
-              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-medium transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200">
-                {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />} 
-                Assegna Turno
+            <div className="md:col-span-3">
+              <button type="submit" disabled={loading} className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 font-medium transition-all flex items-center justify-center gap-2">
+                {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />} Assegna Turno
               </button>
             </div>
           </form>
         </div>
 
-        {/* Lista Turni */}
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-700 px-1">Turni Programmati</h2>
-          {shifts.length === 0 ? (
-            <div className="text-center py-12 bg-white rounded-xl border border-dashed text-gray-500">Nessun turno inserito.</div>
-          ) : (
-            shifts.map((s) => (
-              <div key={s.id} className="bg-white p-4 rounded-xl shadow-sm border flex items-center justify-between hover:border-blue-200 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className={`p-2 rounded-full ${s.is_sunday ? 'bg-red-100 text-red-600' : 'bg-blue-100 text-blue-600'}`}>
-                    <CalendarDays className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="font-bold text-gray-800">{s.mng_employees?.full_name || 'Sconosciuto'}</h3>
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-500 mt-1">
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" /> 
-                        {fmt(new Date(s.start_time), 'dd/MM HH:mm')} - {fmt(new Date(s.end_time), 'HH:mm')}
-                      </span>
-                      
-                      {s.is_split_shift && s.start_time_2 && s.end_time_2 && (
-                        <span className="flex items-center gap-1 font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                          <Clock className="w-3 h-3" /> 
-                          {fmt(new Date(s.start_time_2), 'HH:mm')} - {fmt(new Date(s.end_time_2), 'HH:mm')}
-                        </span>
-                      )}
+        {/* GRIGLIA SETTIMANALE */}
+        <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
+          <div className="p-4 border-b flex items-center justify-between bg-gray-50">
+            <button onClick={() => setCurrentWeekStart(prev => addDays(prev, -7))} className="p-2 hover:bg-white rounded-full border shadow-sm"><ChevronLeft className="w-5 h-5" /></button>
+            <span className="font-bold text-gray-700">{fmt(currentWeekStart, 'dd MMM', { locale: it })} - {fmt(addDays(currentWeekStart, 6), 'dd MMM', { locale: it })}</span>
+            <button onClick={() => setCurrentWeekStart(prev => addDays(prev, 7))} className="p-2 hover:bg-white rounded-full border shadow-sm"><ChevronRight className="w-5 h-5" /></button>
+          </div>
 
-                      <span className="flex items-center gap-1">
-                        <StoreIcon className="w-3 h-3" /> {s.mng_stores?.name || 'N/A'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                <button onClick={() => deleteShift(s.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            ))
-          )}
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-gray-100">
+                  <th className="p-3 text-left text-xs font-bold text-gray-500 uppercase border-b w-64">Dipendente</th>
+                  {weekDays.map(day => (
+                    <th key={day.toString()} className="p-3 text-center text-xs font-bold text-gray-500 uppercase border-b min-w-[120px]">
+                      {fmt(day, 'eee dd', { locale: it })}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filteredEmployees.map(emp => (
+                  <tr key={emp.id} className="hover:bg-gray-50 border-b last:border-0">
+                    <td className="p-3 font-medium text-gray-800 border-r">{emp.full_name}</td>
+                    {weekDays.map(day => {
+                      const shift = shifts.find(s => s.employee_id === emp.id && isSameDay(parseISO(s.start_time), day));
+                      return (
+                        <td key={day.toString()} className="p-2 text-center align-middle">
+                          {shift ? (
+                            <div 
+                              onClick={() => openEditModal(shift)}
+                              className="p-2 rounded-lg bg-blue-50 border border-blue-100 cursor-pointer hover:bg-blue-100 transition-colors text-left"
+                            >
+                              <div className="text-[11px] font-bold text-blue-700 flex items-center gap-1">
+                                <Clock className="w-3 h-3" /> {fmt(parseISO(shift.start_time), 'HH:mm')} - {fmt(parseISO(shift.end_time), 'HH:mm')}
+                              </div>
+                              {shift.is_split_shift && shift.start_time_2 && (
+                                <div className="text-[11px] font-bold text-blue-500 mt-1">
+                                  {fmt(parseISO(shift.start_time_2), 'HH:mm')} - {fmt(parseISO(shift.end_time_2!), 'HH:mm')}
+                                </div>
+                              )}
+                              <div className="text-[9px] text-gray-400 uppercase mt-1 truncate">{shift.mng_stores?.name}</div>
+                            </div>
+                          ) : (
+                            <div className="h-12" />
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       </main>
+
+      {/* MODAL MODIFICA/ELIMINA */}
+      {editingShift && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden animate-in zoom-in duration-200">
+            <div className="p-4 border-b flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-gray-800 flex items-center gap-2"><Clock className="w-5 h-5 text-blue-600" /> Modifica Turno</h3>
+              <button onClick={() => setEditingShift(null)} className="p-1 hover:bg-gray-200 rounded-full"><X className="w-5 h-5" /></button>
+            </div>
+            <form onSubmit={handleSaveShift} className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Dipendente</label>
+                  <select value={empId} onChange={(e) => setEmpId(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required>
+                    {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Negozio</label>
+                  <select value={selectedStore} onChange={(e) => setSelectedStore(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required>
+                    {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Data</label>
+                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="p-2 border rounded-lg text-black outline-none focus:ring-2 focus:ring-blue-500" required />
+                </div>
+                <div className="flex items-center gap-4 pt-6">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={isSplit} onChange={(e) => setIsSplit(e.target.checked)} /> Spezzato</label>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer"><input type="checkbox" checked={isHoliday} onChange={(e) => setIsHoliday(e.target.checked)} /> Festivo</label>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                <div className="p-4 bg-gray-50 rounded-xl border">
+                  <p className="text-xs font-bold text-gray-400 uppercase mb-3">Fascia Oraria 1</p>
+                  <div className="flex items-center gap-2">
+                    <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} className="p-2 border rounded-lg w-full" required />
+                    <span className="text-gray-400">-</span>
+                    <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} className="p-2 border rounded-lg w-full" required />
+                  </div>
+                </div>
+                {isSplit && (
+                  <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+                    <p className="text-xs font-bold text-blue-400 uppercase mb-3">Fascia Oraria 2</p>
+                    <div className="flex items-center gap-2">
+                      <input type="time" value={startTime2} onChange={(e) => setStartTime2(e.target.value)} className="p-2 border border-blue-200 rounded-lg w-full" required />
+                      <span className="text-blue-300">-</span>
+                      <input type="time" value={endTime2} onChange={(e) => setEndTime2(e.target.value)} className="p-2 border border-blue-200 rounded-lg w-full" required />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <button type="button" onClick={() => deleteShift(editingShift.id)} className="flex-1 bg-red-50 text-red-600 py-3 rounded-xl font-bold hover:bg-red-100 transition-colors flex items-center justify-center gap-2">
+                  <Trash2 className="w-5 h-5" /> Elimina Turno
+                </button>
+                <button type="submit" disabled={loading} className="flex-[2] bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition-all flex items-center justify-center gap-2 shadow-lg shadow-blue-200">
+                  {loading ? <Loader2 className="animate-spin w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />} Salva Modifiche
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
