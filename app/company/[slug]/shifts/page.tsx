@@ -1,8 +1,8 @@
 "use client";
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
-  ChevronLeft, PlusCircle, CalendarDays, Clock, 
+  ChevronLeft, ChevronRight, PlusCircle, CalendarDays, Clock, 
   Store as StoreIcon, Trash2, Loader2, 
   AlertTriangle, CheckCircle2, Search, X
 } from 'lucide-react';
@@ -13,9 +13,7 @@ import {
   startOfWeek, 
   addDays, 
   isSameDay, 
-  parseISO, 
-  startOfMonth, 
-  endOfMonth 
+  parseISO 
 } from 'date-fns';
 import { it } from 'date-fns/locale';
 
@@ -37,9 +35,8 @@ interface Shift {
   mng_stores: { name: string } | null;
 }
 
-export default function ShiftsPage({ params }: { params: Promise<{ slug: string }> }) {
-  const resolvedParams = use(params);
-  const slug = resolvedParams.slug;
+export default function ShiftsPage({ params }: { params: { slug: string } }) {
+  const { slug } = params;
 
   const [company, setCompany] = useState<any>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -164,7 +161,6 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
   if (fetching) return <div className="flex h-screen items-center justify-center"><Loader2 className="animate-spin text-blue-600" /></div>;
   if (!company) return <div className="p-10 text-center">Azienda non trovata</div>;
 
-  // Calcolo giorni settimana
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
   const filteredEmployees = employees.filter(e => e.full_name.toLowerCase().includes(searchTerm.toLowerCase()));
 
@@ -188,7 +184,6 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
       </header>
 
       <main className="p-6 max-w-7xl mx-auto">
-        {/* FORM INSERIMENTO RAPIDO */}
         <div className="bg-white p-6 rounded-xl shadow-sm border mb-8">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2"><PlusCircle className="w-5 h-5 text-blue-600" /> Assegna Nuovo Turno</h2>
           {errorMsg && <div className="mb-4 p-3 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 text-sm border border-red-200"><AlertTriangle className="w-4 h-4" /> {errorMsg}</div>}
@@ -246,7 +241,6 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
           </form>
         </div>
 
-        {/* GRIGLIA SETTIMANALE */}
         <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
           <div className="p-4 border-b flex items-center justify-between bg-gray-50">
             <button onClick={() => setCurrentWeekStart(prev => addDays(prev, -7))} className="p-2 hover:bg-white rounded-full border shadow-sm"><ChevronLeft className="w-5 h-5" /></button>
@@ -303,7 +297,6 @@ export default function ShiftsPage({ params }: { params: Promise<{ slug: string 
         </div>
       </main>
 
-      {/* MODAL MODIFICA/ELIMINA */}
       {editingShift && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full overflow-hidden animate-in zoom-in duration-200">
