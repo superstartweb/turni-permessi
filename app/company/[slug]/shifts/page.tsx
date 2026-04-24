@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, use } from 'react';
 import { supabase } from '@/lib/supabase';
 import { 
   ChevronLeft, ChevronRight, PlusCircle, CalendarDays, Clock, 
@@ -35,8 +35,9 @@ interface Shift {
   mng_stores: { name: string } | null;
 }
 
-export default function ShiftsPage({ params }: { params: { slug: string } }) {
-  const { slug } = params;
+export default function ShiftsPage({ params }: { params: Promise<{ slug: string }> }) {
+  const resolvedParams = React.use(params);
+  const slug = resolvedParams.slug;
 
   const [company, setCompany] = useState<any>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
