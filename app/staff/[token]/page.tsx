@@ -8,7 +8,11 @@ import {
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
+<<<<<<< HEAD
 // INTERFACCE
+=======
+// INTERFACCE DEFINITE CORRETTAMENTE PER EVITARE ERRORI DI BUILD
+>>>>>>> 73eaf5be70bdd607951a0c9351c81542c269d74a
 interface Company {
   name: string;
   turns_enabled: boolean;
