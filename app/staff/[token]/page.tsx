@@ -5,25 +5,16 @@ import {
   CalendarDays, Clock, Send, CheckCircle2, 
   ChevronLeft, ChevronRight, AlertCircle, Loader2 
 } from 'lucide-react';
+import Link from 'next/link';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
-<<<<<<< HEAD
-// INTERFACCE
-=======
-// INTERFACCE DEFINITE CORRETTAMENTE PER EVITARE ERRORI DI BUILD
->>>>>>> 73eaf5be70bdd607951a0c9351c81542c269d74a
-interface Company {
-  name: string;
-  turns_enabled: boolean;
-  requests_enabled: boolean;
-}
-
+// INTERFACCE DEFINITE PER EVITARE ERRORI DI TYPESCRIPT
 interface Employee { 
   id: string; 
   full_name: string; 
   role: string;
-  mng_companies: Company | null;
+  mng_companies: { name: string } | null;
 }
 
 interface Shift {
@@ -46,13 +37,14 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
   const resolvedParams = use(params);
   const token = resolvedParams.token;
 
-  const [employee, setEmployee] = useState<Employee | null>(null);
+  const [employee, setEmployee] = useState<any>(null);
   const [shifts, setShifts] = useState<Shift[]>([]);
   const [requests, setRequests] = useState<Request[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'shifts' | 'requests'>('shifts');
   const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 1 }));
 
+  // Stati per il Form Richieste
   const [reqType, setReqType] = useState('ferie');
   const [reqStart, setReqStart] = useState('');
   const [reqEnd, setReqEnd] = useState('');
@@ -62,34 +54,35 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
   const [notes, setNotes] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [sentSuccess, setSentSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   useEffect(() => {
     async function init() {
       try {
         const { data: emp, error: empErr } = await supabase
           .from('mng_employees')
-          .select('*, mng_companies(name, turns_enabled, requests_enabled)')
+          .select('*, mng_companies(id, name, turns_enabled, requests_enabled)')
           .eq('access_token', token)
           .single();
 
         if (empErr || !emp) throw new Error("Accesso non valido");
-        setEmployee(emp as unknown as Employee);
+        setEmployee(emp);
 
         const { data: shfts } = await supabase
           .from('mng_shifts')
           .select('*, mng_stores(name)')
           .eq('employee_id', emp.id)
           .order('start_time', { ascending: true });
-        setShifts((shfts as unknown as Shift[]) || []);
+        setShifts(shfts || []);
 
         const { data: reqs } = await supabase
           .from('mng_requests')
           .select('*')
           .eq('employee_id', emp.id)
           .order('created_at', { ascending: false });
-        setRequests((reqs as unknown as Request[]) || []);
+        setRequests(reqs || []);
 
-      } catch (err) {
+      } catch (err: any) {
         console.error(err);
       } finally {
         setLoading(false);
@@ -101,8 +94,9 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
   const handleSendRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!reqStart || !reqEnd || !employee) return;
-    
     setIsSending(true);
+    setErrorMsg(null);
+
     const { error } = await supabase.from('mng_requests').insert([{
       employee_id: employee.id,
       type: reqType,
@@ -116,25 +110,26 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
     }]);
 
     if (error) {
-      alert("Errore: " + error.message);
+      setErrorMsg(error.message);
+      setIsSending(false);
     } else {
       setSentSuccess(true);
+      setIsSending(false);
       setReqStart(''); setReqEnd(''); setCert(''); setNotes('');
       const { data: updatedReqs } = await supabase
         .from('mng_requests')
         .select('*')
         .eq('employee_id', employee.id)
         .order('created_at', { ascending: false });
-      setRequests((updatedReqs as unknown as Request[]) || []);
+      setRequests(updatedReqs || []);
       setTimeout(() => setSentSuccess(false), 3000);
     }
-    setIsSending(false);
   };
 
   const weekDays = Array.from({ length: 7 }, (_, i) => addDays(currentWeekStart, i));
 
   if (loading) return <div className="flex h-screen items-center justify-center bg-gray-50"><Loader2 className="animate-spin text-blue-600" /></div>;
-  if (!employee) return <div className="flex h-screen items-center justify-center p-4 text-center font-bold text-red-600">Link non valido o scaduto.</div>;
+  if (!employee) return <div className="flex h-screen items-center justify-center font-bold text-red-600">Accesso non valido.</div>;
 
   return (
     <div className="min-h-screen bg-gray-50 text-black">
@@ -174,9 +169,9 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
           <div className="space-y-6 animate-in fade-in duration-500">
             <div className="bg-white rounded-2xl shadow-sm border p-4">
               <div className="flex items-center justify-between mb-4">
-                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, -7))} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronLeft className="w-5 h-5" /></button>
+                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, -7))} className="p-2 hover:bg-gray-100 rounded-full"><ChevronLeft className="w-5 h-5" /></button>
                 <span className="font-bold text-gray-700">{format(currentWeekStart, 'dd MMM', { locale: it })} - {format(addDays(currentWeekStart, 6), 'dd MMM', { locale: it })}</span>
-                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, 7))} className="p-2 hover:bg-gray-100 rounded-full transition-colors"><ChevronRight className="w-5 h-5" /></button>
+                <button onClick={() => setCurrentWeekStart(prev => addDays(prev, 7))} className="p-2 hover:bg-gray-100 rounded-full"><ChevronRight className="w-5 h-5" /></button>
               </div>
 
               <div className="space-y-3">
@@ -194,7 +189,6 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                             <Clock className="w-4 h-4 text-blue-600" />
                             <div className="flex flex-col">
                               <span className="text-sm font-bold text-gray-800">{format(parseISO(dayShift.start_time), 'HH:mm')} - {format(parseISO(dayShift.end_time), 'HH:mm')}</span>
-                              {/* @ts-ignore - Forza il superamento del controllo Vercel */}
                               <span className="text-[10px] text-gray-500 uppercase">{dayShift.mng_stores?.name}</span>
                             </div>
                           </div>
@@ -220,50 +214,27 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                     <button type="button" key={t} onClick={() => setReqType(t)} className={`flex-1 py-2 text-xs font-bold rounded-md capitalize transition-all ${reqType === t ? 'bg-blue-600 text-white shadow-md' : 'bg-gray-100 text-gray-500'}`}>{t}</button>
                   ))}
                 </div>
-
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase">Dal</label>
-                    <input type="date" value={reqStart} onChange={e => setReqStart(e.target.value)} className="p-2 border rounded-lg text-sm" required />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase">Al</label>
-                    <input type="date" value={reqEnd} onChange={e => setReqEnd(e.target.value)} className="p-2 border rounded-lg text-sm" required />
-                  </div>
+                  <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Dal</label><input type="date" value={reqStart} onChange={e => setReqStart(e.target.value)} className="p-2 border rounded-lg text-sm" required /></div>
+                  <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Al</label><input type="date" value={reqEnd} onChange={e => setReqEnd(e.target.value)} className="p-2 border rounded-lg text-sm" required /></div>
                 </div>
-
                 {reqType === 'permesso' && (
-                  <div className="grid grid-cols-2 gap-3 animate-in slide-in-from-top-2">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Inizio</label>
-                      <input type="time" value={reqTimeStart} onChange={e => setReqTimeStart(e.target.value)} className="p-2 border rounded-lg text-sm" required />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-[10px] font-bold text-gray-400 uppercase">Fine</label>
-                      <input type="time" value={reqTimeEnd} onChange={e => setReqTimeEnd(e.target.value)} className="p-2 border rounded-lg text-sm" required />
-                    </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Inizio</label><input type="time" value={reqTimeStart} onChange={e => setReqTimeStart(e.target.value)} className="p-2 border rounded-lg text-sm" required /></div>
+                    <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Fine</label><input type="time" value={reqTimeEnd} onChange={e => setReqTimeEnd(e.target.value)} className="p-2 border rounded-lg text-sm" required /></div>
                   </div>
                 )}
-
                 {reqType === 'malattia' && (
-                  <div className="flex flex-col gap-1 animate-in slide-in-from-top-2">
-                    <label className="text-[10px] font-bold text-gray-400 uppercase">Numero Certificato</label>
-                    <input type="text" value={cert} onChange={e => setCert(e.target.value)} placeholder="Inserisci numero certificato" className="p-2 border rounded-lg text-sm" required />
-                  </div>
+                  <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Numero Certificato</label><input type="text" value={cert} onChange={e => setCert(e.target.value)} placeholder="Inserisci numero certificato" className="p-2 border rounded-lg text-sm" required /></div>
                 )}
-
-                <div className="flex flex-col gap-1">
-                  <label className="text-[10px] font-bold text-gray-400 uppercase">Note</label>
-                  <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Note opzionali..." className="w-full p-2 border rounded-lg text-sm" rows={2}></textarea>
-                </div>
-
-                <button type="submit" disabled={isSending} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95">
+                <div className="flex flex-col gap-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Note</label><textarea value={notes} onChange={e => setNotes(e.target.value)} className="p-2 border rounded-lg text-sm" rows={2} placeholder="Note opzionali..."></textarea></div>
+                <button type="submit" disabled={isSending} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold shadow-lg flex items-center justify-center gap-2">
                   {isSending ? <Loader2 className="animate-spin w-5 h-5" /> : <Send className="w-5 h-5" />} Invia Richiesta
                 </button>
               </form>
               {sentSuccess && <div className="mt-4 p-3 bg-green-50 text-green-700 rounded-lg text-center text-sm font-bold animate-bounce">Inviata con successo!</div>}
+              {errorMsg && <div className="mt-4 p-3 bg-red-50 text-red-700 rounded-lg text-center text-sm font-bold">{errorMsg}</div>}
             </div>
-
             <div className="space-y-3">
               <h2 className="text-lg font-bold px-1">Il mio storico</h2>
               {requests.length === 0 ? (
