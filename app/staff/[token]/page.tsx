@@ -9,7 +9,7 @@ import Link from 'next/link';
 import { format, startOfWeek, addDays, isSameDay, parseISO } from 'date-fns';
 import { it } from 'date-fns/locale';
 
-// INTERFACCE DEFINITE PER EVITARE ERRORI DI TYPESCRIPT
+// INTERFACCE AGGIORNATE PER SUPPORTARE LO SPEZZATO
 interface Employee { 
   id: string; 
   full_name: string; 
@@ -21,6 +21,9 @@ interface Shift {
   id: string;
   start_time: string;
   end_time: string;
+  start_time_2?: string | null; // Aggiunto
+  end_time_2?: string | null;   // Aggiunto
+  is_split_shift: boolean;      // Aggiunto
   mng_stores: { name: string } | null;
   mng_employees: { full_name: string } | null;
 }
@@ -185,11 +188,22 @@ export default function StaffPortal({ params }: { params: Promise<{ token: strin
                       </div>
                       <div className="flex-1 ml-4">
                         {dayShift ? (
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-blue-600" />
+                          <div className="flex items-start gap-2">
+                            <Clock className="w-4 h-4 text-blue-600 mt-1 shrink-0" />
                             <div className="flex flex-col">
-                              <span className="text-sm font-bold text-gray-800">{format(parseISO(dayShift.start_time), 'HH:mm')} - {format(parseISO(dayShift.end_time), 'HH:mm')}</span>
-                              <span className="text-[10px] text-gray-500 uppercase">{dayShift.mng_stores?.name}</span>
+                              {/* Fascia 1 */}
+                              <span className="text-sm font-bold text-gray-800">
+                                {format(parseISO(dayShift.start_time), 'HH:mm')} - {format(parseISO(dayShift.end_time), 'HH:mm')}
+                              </span>
+                              
+                              {/* Fascia 2 (se è uno spezzato) */}
+                              {dayShift.is_split_shift && dayShift.start_time_2 && (
+                                <span className="text-sm font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md mt-1 w-fit border border-blue-100">
+                                  {format(parseISO(dayShift.start_time_2), 'HH:mm')} - {format(parseISO(dayShift.end_time_2!), 'HH:mm')}
+                                </span>
+                              )}
+                              
+                              <span className="text-[10px] text-gray-500 uppercase mt-1">{dayShift.mng_stores?.name}</span>
                             </div>
                           </div>
                         ) : (
